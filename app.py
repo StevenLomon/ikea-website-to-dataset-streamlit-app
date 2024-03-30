@@ -1,6 +1,8 @@
 import requests, re
 from rich import print
 import pandas as pd
+import snowflake.connector
+from snowflake.connector.pandas_tools import write_pandas
 
 # ikea_url = "https://www.ikea.com/se/sv/cat/lower-price/"
 ikea_url = "https://www.ikea.com/se/sv/cat/soffor-fu003/"
