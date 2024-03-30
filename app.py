@@ -2,7 +2,9 @@ import requests, re
 from rich import print
 import pandas as pd
 import snowflake.connector
-from snowflake.connector.pandas_tools import write_pandas
+# from snowflake.connector.pandas_tools import write_pandas
+from sqlalchemy import create_engine
+from snowflake.sqlalchemy import URL
 
 # ikea_url = "https://www.ikea.com/se/sv/cat/lower-price/"
 ikea_url = "https://www.ikea.com/se/sv/cat/soffor-fu003/"
@@ -116,5 +118,22 @@ df['Firmness'] = df['quickFacts'].apply(lambda x: x[0]['name'] if x else None)
 df_final = df.loc[:,['pipUrl', 'id', 'name', 'typeName', 'mainImageUrl', 'ratingValue', 'ratingCount', 'salesPrice.current.wholeNumber', 'Color name', 'Color hex', 'Firmness', 'mainImageAlt']]
 df_final.rename(columns = {'pipUrl':'URL', 'id':'ID', 'name':'Name', 'typeName':'Type', 'mainImageUrl':'Image URL', 'ratingValue':'Rating value',
                            'ratingCount':'Rating count', 'salesPrice.current.wholeNumber':'Price', 'mainImageAlt':'Description'}, inplace=True)
+df_final.reset_index(drop=True, inplace=True)
 
 print(df_final)
+
+engine = create_engine(URL(
+    account = 'steven@semurai.se',
+    user = 'STEVENLOMONSEMURAIAWS',
+    password = 'CbYBF$o7r8$t3?Jt',
+    database = 'IKEA',
+    schema = 'PUBLIC',
+    warehouse = 'MY_FIRST_WAREHOUSE',
+    role = 'ACCOUNTADMIN'
+))
+
+print(type(URL))
+
+with engine.connect() as conn:
+    df_final.to_sql('IKEA_SOFAS', con=conn.connection, index=False, if_exists='replace')
+
