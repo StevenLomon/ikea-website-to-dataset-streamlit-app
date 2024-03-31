@@ -180,8 +180,8 @@ async def fetch(sem, session, url, headers, payload_json, max_retries=3, delay=1
         print(f"Failed to fetch {url} after {max_retries} attempts.")
         return None
 
-async def fetch_all(url, payload_jsons):
-    sem = asyncio.Semaphore(5)  # Control concurrency
+async def fetch_all(url, payload_jsons, semaphore_value=10):
+    sem = asyncio.Semaphore(semaphore_value)  # Control concurrency
     headers = {'Content-Type': 'application/json'}
     async with aiohttp.ClientSession() as session:
         tasks = [asyncio.create_task(fetch(sem, session, url, headers, payload_json)) for payload_json in payload_jsons]
