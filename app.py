@@ -1,4 +1,4 @@
-import requests, re, time, random
+import requests, re, time, random, asyncio, aiohttp, json
 from rich import print
 import pandas as pd
 import streamlit as st
@@ -99,77 +99,94 @@ def split_total_into_batches(total, batch_size=1000):
     
     return batches
 
-def scrape_products(keyword, offset, size, counter, total_results, progress_bar, text_placeholder, max_retries=3, delay=1):
-    api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
-    payload = f"""{{
-        'searchParameters': {{
-            'input': '{keyword}',
-            'type': 'CATEGORY'
-        }},
-        'zip': '11152',
-        'store': '669',
-        'optimizely': {{
-            'listing_1985_mattress_guide': null,
-            'listing_fe_null_test_12122023': null,
-            'listing_1870_pagination_for_product_grid': null,
-            'listing_2527_nlp_anchor_links': 'a',
-            'sik_listing_2411_kreativ_planner_desktop_default': 'b',
-            'sik_listing_2482_remove_backfill_plp_default': 'b'
-        }},
-        'isUserLoggedIn': false,
-        'components': [{{
-            'component': 'PRIMARY_AREA',
-            'columns': 4,
-            'types': {{
-                'main': 'PRODUCT',
-                'breakouts': ['PLANNER', 'LOGIN_REMINDER']
-            }},
-            'filterConfig': {{
-                'max-num-filters': 4
-            }},
-            'sort': 'RELEVANCE',
-            'window': {{
-                'offset': {offset},
-                'size': {size}
-            }}
-        }}]
-    }}"""
-    headers = {
-    'Content-Type': 'text/plain'
-    }
+def get_payloads(batches):
+    payloads = []
+    for i, (offset, size) in enumerate(batches):
+        payload_dict = {
+            "searchParameters": {
+                "input": keyword,
+                "type": "CATEGORY"
+            },
+            "zip": "11152",
+            "store": "669",
+            "optimizely": {
+                "listing_1985_mattress_guide": None,
+                "listing_fe_null_test_12122023": None,
+                "listing_1870_pagination_for_product_grid": None,
+                "listing_2527_nlp_anchor_links": "a",
+                "sik_listing_2411_kreativ_planner_desktop_default": "b",
+                "sik_listing_2482_remove_backfill_plp_default": "b"
+            },
+            "isUserLoggedIn": False,
+            "components": [{
+                "component": "PRIMARY_AREA",
+                "columns": 4,
+                "types": {
+                    "main": "PRODUCT",
+                    "breakouts": ["PLANNER", "LOGIN_REMINDER"]
+                },
+                "filterConfig": {
+                    "max-num-filters": 4
+                },
+                "sort": "RELEVANCE",
+                "window": {
+                    "offset": offset,
+                    "size": size
+                }
+            }]
+        }
+        payload_json = json.dumps(payload_dict)
+        payloads.append(payload_json)   
+    return payloads 
 
-    for attempt in range(max_retries):
-        try:
-            response = requests.request("POST", api_request_url, headers=headers, data=payload)
-            if response.status_code == 200:
-                json_results = None  
-                products = []
+# The FUNDAMENTAL difference here is that our api request url is the same for our four requests. What is different is the PAYLOAD
 
-                results = response.json().get('results', [])
-                if results:
-                    json_results = results[0].get('items', [])
+# NOW that we have our four different payloads, we use async requests to significantly speed up the process of fetching
+# all of the dicts with the payloads
 
-                for item in json_results:
-                    products.append(item["product"])
+async def fetch(sem, session, url, headers, payload_json, max_retries=3, delay=1):
+    async with sem:
+        for attempt in range(max_retries):
+            try:
+                # Convert the payload_json string back to a dictionary for the json parameter.
+                payload_dict = json.loads(payload_json)
+                async with session.post(url, headers=headers, json=payload_dict) as response:
+                    if response.status == 200:
+                        data = await response.json()
 
-                    # Update the progress bar and text after each job posting is processed
-                    progress = counter / total_results
-                    progress = min(max(progress, 0.0), 1.0)  # Clamp the progress value
-                    progress_bar.progress(progress)
-                    text_placeholder.text(f"Processing {counter} / {total_results}")
-                    counter += 1
+                        # Extract product data
+                        product_data = []
+                        results = data.get('results', [])
+                        if results:
+                            items = results[0].get('items', [])
+                            for item in items:
+                                product = item.get('product')
+                                if product:
+                                    product_data.append(product)
+                        if product_data:
+                            return product_data
+                        else:
+                            print(f"Product data not found in response for URL {url}.")
+                            return None
+                    elif response.status == 500:
+                        print(f"Attempt {attempt + 1}: Server Error for URL {url}. Retrying in {delay} seconds...")
+                        await asyncio.sleep(delay)
+                    else:
+                        print(f"Attempt {attempt + 1}: Status {response.status} for URL {url}. Retrying in {delay} seconds...")
+                        await asyncio.sleep(delay)
+            except aiohttp.ClientError as e:
+                print(f"Request failed: {e}")
+                await asyncio.sleep(delay)
+        print(f"Failed to fetch {url} after {max_retries} attempts.")
+        return None
 
-                products = [item["product"] for item in json_results]
-
-                return products
-            else:
-               print(f"Received status code {response.status_code}") 
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
-
-        time.sleep(delay)
-    
-    return None
+async def fetch_all(url, payload_jsons):
+    sem = asyncio.Semaphore(5)  # Control concurrency
+    headers = {'Content-Type': 'application/json'}
+    async with aiohttp.ClientSession() as session:
+        tasks = [asyncio.create_task(fetch(sem, session, url, headers, payload_json)) for payload_json in payload_jsons]
+        product_results = await asyncio.gather(*tasks)
+        return product_results
 
 def turn_list_of_dicts_into_dfs_and_clean(all_products_list):
     """
@@ -188,22 +205,6 @@ def turn_list_of_dicts_into_dfs_and_clean(all_products_list):
     df_clean.rename(columns = {'pipUrl':'URL', 'id':'ID', 'name':'Name', 'typeName':'Type', 'mainImageUrl':'Image URL', 'ratingValue':'Rating value',
                             'ratingCount':'Rating count', 'salesPrice.current.wholeNumber':'Price', 'mainImageAlt':'Description'}, inplace=True)
     df_clean.reset_index(drop=True, inplace=True)
-
-    return (df_raw, df_clean)
-
-def scrape_all_products_and_show_progress(keyword, batches, total_results, progress_bar, text_placeholder):
-    all_products = []
-    counter = 0
-
-    for i, (offset, size) in enumerate(batches):
-        print(f"Request #{i+1}")
-        products = scrape_products(keyword, offset, size, counter, total_results, progress_bar, text_placeholder)
-        time.sleep(random.randint(3,5))
-        all_products.extend(products)
-    
-    print("Done!")
-
-    df_raw, df_clean = turn_list_of_dicts_into_dfs_and_clean(all_products)
 
     return (df_raw, df_clean)
 
@@ -227,9 +228,10 @@ def generate_excel(dataframe, result_name):
     return output
 
 ### STREAMLIT CODE
-st.title('IKEA  to CSV Generator')
+st.title('IKEA to CSV Generator')
 
-# User input for LinkedIn URL
+# User input for IKEA URL
+# ikea_url = "https://www.ikea.com/se/sv/cat/soffor-fu003/"
 ikea_url = st.text_input('Enter URL from the IKEA website with the products:', '')
 result_name = st.text_input('Enter a name for the resulting csv/Excel file:', '')
 max_products_to_scrape = st.text_input('Enter maximum amounts of products to scrape (leave blank to scrape all available jobs for the query):', '')
@@ -239,87 +241,50 @@ file_format = st.radio("Choose the file format for download:", ('csv', 'xlsx'))
 
 # Button to the result file
 if st.button('Generate File'):
-    if ikea_url:
-        # Loading bar
-        progress_bar = st.progress(0)
-        text_placeholder = st.empty()
-        
-        keyword = re.search(r'-([^-\s/]+)\/?$', ikea_url).group(1)
-        api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
-        
-        payload = f"""{{
-            'searchParameters': {{
-                'input': '{keyword}',
-                'type': 'CATEGORY'
-            }},
-            'zip': '11152',
-            'store': '669',
-            'optimizely': {{
-                'listing_1985_mattress_guide': null,
-                'listing_fe_null_test_12122023': null,
-                'listing_1870_pagination_for_product_grid': null,
-                'listing_2527_nlp_anchor_links': 'a',
-                'sik_listing_2411_kreativ_planner_desktop_default': 'b',
-                'sik_listing_2482_remove_backfill_plp_default': 'b'
-            }},
-            'isUserLoggedIn': false,
-            'components': [{{
-                'component': 'PRIMARY_AREA',
-                'columns': 4,
-                'types': {{
-                    'main': 'PRODUCT',
-                    'breakouts': ['PLANNER', 'LOGIN_REMINDER']
-                }},
-                'filterConfig': {{
-                    'max-num-filters': 4
-                }},
-                'sort': 'RELEVANCE',
-                'window': {{
-                    'offset': 0,
-                    'size': 12
-                }}
-            }}]
-        }}"""
-        headers = {
-        'csrf-token': 'ajax:5371233139676576627',
-        'Cookie': 'bcookie="v=2&21324318-35a4-4b89-8ccd-66085ea456e6"; li_mc=MTsyMTsxNzExMjc2MTc0OzI7MDIxe9WcWZ2d6Bt7L96zCLaBjXpfuxnqB2ora17i0MVkktc=; lidc="b=VB74:s=V:r=V:a=V:p=V:g=4154:u=247:x=1:i=1711257936:t=1711297019:v=2:sig=AQEI3UFEfjQrzprvxRtR2ODZ2EXxFVpB"; sdsc=22%3A1%2C1711273501254%7EJAPP%2C08tO5%2Fcka%2F8fklcFLQeSLJeOemic%3D; JSESSIONID="ajax:5371233139676576627"; bscookie="v=1&202403141230369a2ffb3d-11be-445e-8196-32de3e951a31AQFV3WHayzR8g95w6TJ6LrZlOyXvi0m3"; g_state={"i_l":0}; li_alerts=e30=; li_at=AQEDASvMh7YFmyS7AAABjmrnuugAAAGOjvQ-6E0AY1fC-ANVhrSwjiNiqIhKYZ1Xib5nml6YE96LyvaMY3LATaVjueFFrqG8UXQNJz_kxu4qPIr20m8fm4URdNFCas5wngLRy2k8BJPw8UGUqCaqXKD7; li_g_recent_logout=v=1&true; li_rm=AQHjnJLrN-yKBQAAAY5q4y9R8BRBllyhPbBn5d_YYX2L59W6HxE_DqKNA8I0kMJ65IWgm2p2lw6Nr-GtGaWvKLjdLWcGo7lk7TxomWVYVRCBBwCg0vdKIUKRO5r3HtOd-9SY1a3tgovir_swKutrRj18DIt1HyV6JLLjK7r_2_Q3Y17vc2CH16R-MR9JvdZ43vTF0Y3FC9phhH2YQIfsbFlThT369bNJPiiDf9KdkGjeERmZH7RAG2iu0b7jY6iAidzkyplMV_nmlyqO_-v-2dRjfqjTYSjZwx0D046PpPzLEu1Vy7RK5SBlfPOm2djsHD8H4sQ32JlCErdlwYI; li_theme=light; li_theme_set=app; timezone=Europe/Stockholm'
-        }
+    with st.spinner('Generating files, hold on'):
+        if ikea_url:
+            keyword = re.search(r'-([^-\s/]+)\/?$', ikea_url).group(1)
+            api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
 
-        start_time = time.time()
-        total_number_of_results = get_total_number_of_results(keyword)
-        print(f"Attempting to scrape {total_number_of_results} products!")
+            start_time = time.time()
+            total_number_of_results = get_total_number_of_results(keyword)
+            print(f"Attempting to scrape {total_number_of_results} products!")
 
-        batches = split_total_into_batches(total_number_of_results)
-        print(f"Splitting {total_number_of_results} in batches: {batches}")
+            batches = split_total_into_batches(total_number_of_results)
+            print(f"Splitting {total_number_of_results} in batches: {batches}")
 
-        df_raw, df_clean = scrape_all_products_and_show_progress(keyword, batches, total_number_of_results, progress_bar, text_placeholder)
-        end_time = time.time()
-        st.text(f"Done! Scraped {total_number_of_results} products in {end_time - start_time} seconds")
+            payloads = get_payloads(batches)
+            results = asyncio.run(fetch_all(api_request_url, payloads))
+            # Flatten the list of lists into a single list of products
+            products = [product for sublist in results if sublist for product in sublist]
 
-        if file_format == 'csv':
-            result_name_raw = f"{result_name}_raw.csv"
-            csv_file_raw = generate_csv(df_raw, result_name_raw)
-            csv_file_clean = generate_csv(df_clean, result_name)
-            with open(csv_file_raw, "rb") as file:
-                st.download_button(label="Download raw data CSV", data=file, file_name=csv_file_raw, mime='text/csv')
-            with open(csv_file_clean, "rb") as file:
-                st.download_button(label="Download clean data CSV", data=file, file_name=csv_file_clean, mime='text/csv')
-            st.success(f'CSV files generated: {csv_file_raw}, {csv_file_clean}')
-        elif file_format == 'xlsx':
-            result_name_raw = f"{result_name}_raw"
-            excel_file_raw = generate_excel(df_raw, result_name_raw)
-            excel_file_clean = generate_excel(df_clean, result_name)
-            st.download_button(label="Download raw data Excel", data=excel_file_raw, file_name=f"{result_name}.xlsx", mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            st.download_button(label="Download clean data Excel", data=excel_file_clean, file_name=f"{result_name_raw}.xlsx", mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-            st.success(f'Excel file generated: {result_name}.xlsx, {result_name_raw}.xlsx')
+            df_raw, df_clean = turn_list_of_dicts_into_dfs_and_clean(products)
+            end_time = time.time()
+            print("Done!")
+            st.text(f"Done! Scraped {total_number_of_results} products in {end_time - start_time} seconds")
 
-    else:
-        st.error("Please enter a valid IKEA URL")
+            if file_format == 'csv':
+                result_name_raw = f"{result_name}_raw.csv"
+                csv_file_raw = generate_csv(df_raw, result_name_raw)
+                csv_file_clean = generate_csv(df_clean, result_name)
+                with open(csv_file_raw, "rb") as file:
+                    st.download_button(label="Download raw data CSV", data=file, file_name=csv_file_raw, mime='text/csv')
+                with open(csv_file_clean, "rb") as file:
+                    st.download_button(label="Download clean data CSV", data=file, file_name=csv_file_clean, mime='text/csv')
+                st.success(f'CSV files generated: {csv_file_raw}, {csv_file_clean}')
+            elif file_format == 'xlsx':
+                result_name_raw = f"{result_name}_raw"
+                excel_file_raw = generate_excel(df_raw, result_name_raw)
+                excel_file_clean = generate_excel(df_clean, result_name)
+                st.download_button(label="Download raw data Excel", data=excel_file_raw, file_name=f"{result_name}.xlsx", mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                st.download_button(label="Download clean data Excel", data=excel_file_clean, file_name=f"{result_name_raw}.xlsx", mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                st.success(f'Excel file generated: {result_name}.xlsx, {result_name_raw}.xlsx')
+
+        else:
+            st.error("Please enter a valid IKEA URL")
 
 
 
-
-        
 
 
 # engine = create_engine(URL(
@@ -337,3 +302,68 @@ if st.button('Generate File'):
 # with engine.connect() as conn:
 #     df_clean.to_sql('IKEA_SOFAS', con=conn.connection, index=False, if_exists='replace')
 
+# Code graveyard :)
+# def scrape_products(keyword, offset, size, counter, total_results, max_retries=3, delay=1):
+#     api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
+#     payload = f"""{{
+#         'searchParameters': {{
+#             'input': '{keyword}',
+#             'type': 'CATEGORY'
+#         }},
+#         'zip': '11152',
+#         'store': '669',
+#         'optimizely': {{
+#             'listing_1985_mattress_guide': null,
+#             'listing_fe_null_test_12122023': null,
+#             'listing_1870_pagination_for_product_grid': null,
+#             'listing_2527_nlp_anchor_links': 'a',
+#             'sik_listing_2411_kreativ_planner_desktop_default': 'b',
+#             'sik_listing_2482_remove_backfill_plp_default': 'b'
+#         }},
+#         'isUserLoggedIn': false,
+#         'components': [{{
+#             'component': 'PRIMARY_AREA',
+#             'columns': 4,
+#             'types': {{
+#                 'main': 'PRODUCT',
+#                 'breakouts': ['PLANNER', 'LOGIN_REMINDER']
+#             }},
+#             'filterConfig': {{
+#                 'max-num-filters': 4
+#             }},
+#             'sort': 'RELEVANCE',
+#             'window': {{
+#                 'offset': {offset},
+#                 'size': {size}
+#             }}
+#         }}]
+#     }}"""
+#     headers = {
+#     'Content-Type': 'text/plain'
+#     }
+
+#     for attempt in range(max_retries):
+#         try:
+#             response = requests.request("POST", api_request_url, headers=headers, data=payload)
+#             if response.status_code == 200:
+#                 json_results = None  
+#                 products = []
+
+#                 results = response.json().get('results', [])
+#                 if results:
+#                     json_results = results[0].get('items', [])
+
+#                 for item in json_results:
+#                     products.append(item["product"])
+
+#                 products = [item["product"] for item in json_results]
+
+#                 return products
+#             else:
+#                print(f"Received status code {response.status_code}") 
+#         except requests.exceptions.RequestException as e:
+#             print(f"Request failed: {e}")
+
+#         time.sleep(delay)
+    
+#     return None
