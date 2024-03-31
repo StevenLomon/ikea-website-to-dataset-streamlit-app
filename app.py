@@ -199,9 +199,10 @@ def turn_list_of_dicts_into_dfs_and_clean(all_products_list):
 
     df_raw_copy['Color name'] = df_raw_copy['colors'].apply(lambda x: x[0].get('name') if x and 'name' in x[0] else None)
     df_raw_copy['Color hex'] = df_raw_copy['colors'].apply(lambda x: x[0].get('hex') if x and 'hex' in x[0] else None)
-    df_raw_copy['Firmness'] = df_raw_copy['quickFacts'].apply(lambda x: x[0].get('name') if x and 'name' in x[0] else None)
+    # The below one mostly applies to sofas which is what I did all testing on :))
+    # df_raw_copy['Firmness'] = df_raw_copy['quickFacts'].apply(lambda x: x[0].get('name') if x and 'name' in x[0] else None)
 
-    df_clean = df_raw_copy.loc[:,['pipUrl', 'id', 'name', 'typeName', 'mainImageUrl', 'ratingValue', 'ratingCount', 'salesPrice.current.wholeNumber', 'Color name', 'Color hex', 'Firmness', 'mainImageAlt']]
+    df_clean = df_raw_copy.loc[:,['pipUrl', 'id', 'name', 'typeName', 'mainImageUrl', 'ratingValue', 'ratingCount', 'salesPrice.current.wholeNumber', 'Color name', 'Color hex', 'mainImageAlt']]
     df_clean.rename(columns = {'pipUrl':'URL', 'id':'ID', 'name':'Name', 'typeName':'Type', 'mainImageUrl':'Image URL', 'ratingValue':'Rating value',
                             'ratingCount':'Rating count', 'salesPrice.current.wholeNumber':'Price', 'mainImageAlt':'Description'}, inplace=True)
     df_clean.reset_index(drop=True, inplace=True)
