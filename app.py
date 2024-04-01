@@ -1,8 +1,9 @@
-import requests, re, time, random, asyncio, aiohttp, json
+import requests, re, time, random, asyncio, aiohttp, json, os
 from rich import print
 import pandas as pd
 import streamlit as st
 from io import BytesIO
+from dotenv import find_dotenv, load_dotenv
 # import snowflake.connector
 # from snowflake.connector.pandas_tools import write_pandas
 # from sqlalchemy import create_engine
@@ -230,6 +231,7 @@ def generate_excel(dataframe, result_name):
 
 ### STREAMLIT CODE
 st.title('IKEA to CSV Generator')
+st.markdown('The URL should be a page listing all products within a product group, for example every available sofa from IKEA. It will generate a file with raw data and a file with clean data. \n\nSample URL: https://www.ikea.com/se/sv/cat/soffor-fu003/')
 
 # User input for IKEA URL
 # ikea_url = "https://www.ikea.com/se/sv/cat/soffor-fu003/"
@@ -285,13 +287,13 @@ if st.button('Generate File'):
             st.error("Please enter a valid IKEA URL")
 
 
-
-
+load_dotenv(find_dotenv())
+snowflake_password = os.getenv("PASSWORD")
 
 # engine = create_engine(URL(
 #     account = 'steven@semurai.se',
 #     user = 'STEVENLOMONSEMURAIAWS',
-#     password = 'CbYBF$o7r8$t3?Jt',
+#     password = snowflake_password,
 #     database = 'IKEA',
 #     schema = 'PUBLIC',
 #     warehouse = 'MY_FIRST_WAREHOUSE',
