@@ -9,9 +9,6 @@ from dotenv import find_dotenv, load_dotenv
 # from sqlalchemy import create_engine
 # from snowflake.sqlalchemy import URL
 
-# ikea_url = "https://www.ikea.com/se/sv/cat/lower-price/"
-#ikea_url = "https://www.ikea.com/se/sv/cat/soffor-fu003/"
-
 def get_total_number_of_results(keyword, max_retries=3, delay=1):
     api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
     payload = f"""{{
