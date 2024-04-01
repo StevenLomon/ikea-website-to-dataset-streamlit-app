@@ -240,7 +240,7 @@ max_products_to_scrape = st.text_input('Enter maximum amounts of products to scr
 file_format = st.radio("Choose the file format for download:", ('csv', 'xlsx'))
 
 # Button to the result file
-if st.button('Generate File'):
+if st.button('Generate Files'):
     with st.spinner('Generating files, hold on'):
         if ikea_url:
             keyword = re.search(r'-([^-\s/]+)\/?$', ikea_url).group(1)
