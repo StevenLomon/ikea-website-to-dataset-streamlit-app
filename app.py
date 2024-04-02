@@ -97,7 +97,7 @@ def split_total_into_batches(total, batch_size=1000):
     
     return batches
 
-def get_payloads(batches):
+def get_payloads(keyword, batches):
     payloads = []
     for i, (offset, size) in enumerate(batches):
         payload_dict = {
@@ -253,7 +253,7 @@ if st.button('Generate Files'):
             batches = split_total_into_batches(total_number_of_results)
             print(f"Splitting {total_number_of_results} in batches: {batches}")
 
-            payloads = get_payloads(batches)
+            payloads = get_payloads(keyword, batches)
             results = asyncio.run(fetch_all(api_request_url, payloads))
             # Flatten the list of lists into a single list of products
             products = [product for sublist in results if sublist for product in sublist]
