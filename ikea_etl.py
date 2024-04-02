@@ -5,7 +5,7 @@ from datetime import datetime
 from app import get_total_number_of_results, split_total_into_batches, get_payloads, fetch, fetch_all, generate_csv
 
 ikea_url = "https://www.ikea.com/se/sv/new/new-products/"
-result_name = f"ikea_new_products_{datetime.now().strftime('%m/%d/%Y_%H:%M:%S')}.csv"
+result_name = f"ikea_new_products_{datetime.now().strftime('%m_%d_%Y_%H:%M:%S')}.csv"
 
 keyword = re.search(r'-([^-\s/]+)\/?$', ikea_url).group(1)
 api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
@@ -27,5 +27,4 @@ df_ikea.rename(columns = {'pipUrl':'URL', 'id':'ID', 'name':'Name', 'typeName':'
                         'ratingCount':'Rating count', 'salesPrice.current.wholeNumber':'Price', 'mainImageAlt':'Description'}, inplace=True)
 df_ikea.reset_index(drop=True, inplace=True)
 
-print(df_ikea.head(15))
-print(df_ikea.shape)
+df_ikea.to_csv(result_name)
