@@ -1,13 +1,8 @@
-import requests, re, time, random, asyncio, aiohttp, json, os
+import requests, re, time, asyncio, aiohttp, json
 from rich import print
 import pandas as pd
 import streamlit as st
 from io import BytesIO
-from dotenv import find_dotenv, load_dotenv
-# import snowflake.connector
-# from snowflake.connector.pandas_tools import write_pandas
-# from sqlalchemy import create_engine
-# from snowflake.sqlalchemy import URL
 
 def get_total_number_of_results(keyword, max_retries=3, delay=1):
     api_request_url = "https://sik.search.blue.cdtapps.com/se/sv/search?c=listaf"
@@ -282,25 +277,6 @@ if st.button('Generate Files'):
 
         else:
             st.error("Please enter a valid IKEA URL")
-
-
-load_dotenv(find_dotenv())
-snowflake_password = os.getenv("PASSWORD")
-
-# engine = create_engine(URL(
-#     account = 'steven@semurai.se',
-#     user = 'STEVENLOMONSEMURAIAWS',
-#     password = snowflake_password,
-#     database = 'IKEA',
-#     schema = 'PUBLIC',
-#     warehouse = 'MY_FIRST_WAREHOUSE',
-#     role = 'ACCOUNTADMIN'
-# ))
-
-# print(type(URL))
-
-# with engine.connect() as conn:
-#     df_clean.to_sql('IKEA_SOFAS', con=conn.connection, index=False, if_exists='replace')
 
 # Code graveyard :)
 # def scrape_products(keyword, offset, size, counter, total_results, max_retries=3, delay=1):
